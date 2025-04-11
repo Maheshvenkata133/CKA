@@ -1,0 +1,140 @@
+CKA Exam questions:
+------------------
+Create a deployment named nginx-deploy with 3 replicas using image nginx:1.25. Ensure it listens on port 80.
+$ kubectl create deployment nginx-deploy --image:nginx:1.25 --replicas=3
+$ kubectl expose deployment nginx-deploy --port=80 --targetPort=80
+or create service.yaml
+app: v1
+kind: service
+metadata:
+  name: nginx-deployment
+spec:
+  selector:
+    name: nginx-deployment
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+type: LoadBalancer
+------------------------------------------------
+2. Check the CPU and memory usage of all nodes in the cluster.
+$ kubectl top no
+-----------------------------------------------
+3.Create a pod busybox using image busybox:1.28, which sleeps for 3600 seconds, with 100m CPU and 128Mi memory request, and 200m CPU and 256Mi memory limit.
+apiVersion: va
+kind: Pod
+metadata: 
+  name: busybox
+spec:
+  containers:
+    - name: busybox
+      image: busybox:1.28
+      command: ['sleep', '300']
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "200"
+        memory: "256Mi"
+------------------------------------------------
+4. Create a ConfigMap named app-config with key ENV=prod, and mount it into a pod at /etc/config.
+
+$ kubectl create configmap app-config --from-literal=ENV=prod
+
+pod mount:
+-------
+volumeMounts:
+  - name: config-volume
+    mountPath: /etc/config
+volumes:
+  - name: config-volume
+    configMap: 
+      name: app-config
+-------------------------------------------------
+5. A pod named my-app is in CrashLoopBackOff. Find logs and root cause.
+$ kubectl logs my-app 
+$ kubectl describe pod my-app 
+
+--------------------------------------------------
+6. Write a network policy to allow traffic to pods with label app=web only from pods with label app=frontend in namespace prod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: 
+  name: allow-frontend
+  namespace: prod
+spec:
+  podSelector:
+    matchLabels: 
+      app: web
+   ingress:
+     - from:
+         - podSelector:
+             matchLabels:
+                app: frontend
+   policyTypes:
+     - Ingress
+---------------------------------------------------------
+7. Take a Back up etcd to /backup/etcd-snapshot.db
+Command (assuming control-plane node with etcdctl access):
+
+$ ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
+    --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key
+------------------------------------------------------------
+8. Schedule a Pod on a Specific Node: Create a pod named node-specific that must run on node node01.
+$ kubectl taint nodes node01 hdd=ssd:NoSchedule
+tolerations in pod
+tolerations:
+  apiVersion: v1
+kind: Pod
+metadata:
+  name: node-specific
+spec:
+  containers:
+    - name: busybox
+      image: busybox
+      command: ['sleep', '3600']
+  tolerations:
+    - key: "hdd"
+      operator: "Equal"
+      value: "ssd"
+      effect: "NoSchedule"
+ Optionally can schedule a pod on a specific node using a nodeSelector by matching the node's label.
+$ kubectl label node node01 disktype=ssd
+$ kubectl get nodes --show-labels
+in pod.yaml 
+  containers:
+    - name: busybox
+      image: busybox:1.28
+  nodeSelector:
+    disktype: ssd
+-----------------------------------------------------------------
+9.Taint and Toleration: Taint node node01 with key=env, value=dev, effect=NoSchedule. Then run a pod that tolerates it.
+$ kubectl taint nodes node01 env=dev:NoSchedule
+
+tolerations:
+  - key: "env"
+    operator: "Equal"
+    value: "dev"
+    effect: "NoSchedule"
+------------------------------------------------------------------
+10. Set Context and Namespace: Use context cluster-admin@kubernetes and set default namespace to dev.
+$ kubectl config use-context cluster-admin@kubernetes 
+$ kubectl config set-context --current --namespace=dev
+
+
+
+
+
+
+
+
+
+
+
+
+
+
