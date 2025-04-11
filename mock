@@ -1,0 +1,174 @@
+Q1: Add a new worker node to the cluster
+You’ve installed kubeadm and Docker on a new machine.
+
+Join it to the existing cluster using the kubeadm join token.
+
+✅ Expected Outcome: New node appears in kubectl get nodes
+
+Get the join command from the master node
+$ kubeadm token create --print-join-command
+Run the join command on the new worker node. Key looks like below as
+kubeadm join 10.0.0.1:6443 --token abcdef.0123456789abcdef \
+    --discovery-token-ca-cert-hash sha256:1234abcd...efgh5678
+$ kubeadm join <control-plane-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash> ----> this is sample format of the above command 
+On the control plane, verify the node joined:
+$ kubectl get no 
+Troubleshooting Tips
+Firewall: Ensure port 6443 is open from the worker to control-plane.
+Clock Sync: Use ntpd or chronyd to avoid TLS errors.
+Kubelet logs: Check with journalctl -xeu kubelet if node isn't joining.
+journalctl	Command to query system logs
+-x	Show extra info (explanations of error codes if available)
+-e	Jump to the end of the log (most recent entries)
+-u kubelet	Show logs only for the kubelet unit/service
+-------------------------------------------------------------------------
+ Q2: View the kubelet logs on a node
+View logs for the kubelet service on node01.
+✅ Expected: Show the last 20 lines of kubelet logs.
+$ journalctl logs -u kubelet -n 20
+To watch logs live
+$ journalctl logs kubelet -f 
+If logs are not showing, make sure kubelet is installing and running
+$ systemctl status kubelet
+
+We cannot directly view kubelet logs using kubectl, because:
+kubectl interacts with the Kubernetes API server.
+kubelet runs on the node itself and is not part of the Kubernetes API.
+kubelet logs are system-level logs, not pod logs.
+---------------------------------------------------------------------------
+Workloads & Scheduling
+🧩 Q3: Create a pod that runs on a specific node
+Pod name: myapp-pod
+Image: nginx
+Node: node01
+✅ Expected: Use nodeName or nodeSelector
+Using nodeSelector:
+$ kubectl get nodes --show-labels
+$ kubectl label node node01 disktype=ssd
+pod.yaml 
+apiVersion: v1
+kind: Pod
+metadata: 
+  name: myapp-pod
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+  nodeSelector:
+    disktype: ssd
+Using Node:
+myapp-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: myapp-pod
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+  nodeName: node01
+$ kubectl apply -f myapp-pod.yaml
+$ kubectl get pods -o wide
+-----------------------------------------------
+Q4: Create a deployment with resource limits
+Name: cpu-demo
+Image: nginx
+Replicas: 2
+CPU request: 100m, limit: 500m
+Memory request: 256Mi, limit: 512Mi
+
+cpu-demo.yaml\
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpu-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cpu-demo
+  template:
+    metadata:
+      labels:
+        app: cpu-demo
+    spec:
+      containers:
+        - name: nginx
+          image: nginx
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+$ kubectl apply -f cpu-demo.yaml
+$ kubectl get deployment cpu-demo 
+$ kubectl describe deployment cpu-demo 
+---------------------------------------------------------------
+ Q5: Schedule a pod with a node affinity
+Pod must run on a node with label zone=us-east1
+Pod name: affinity-pod, image: busybox
+
+$ kubectl get nodes --show-labels
+$ kubectl label node node01 disktype-         # kubectl label node <node-name> <label-key>-
+$ kubectl describe node node01 | grep Labels -A 20     #to check labels on a specific node:
+$ kubectl get nodes --show-labels
+$ kubectl label node node01 zone=us-east1
+affinity-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata: 
+  name: affinity-pod
+spec:
+  containers:
+    - name: busybox
+      image: busybox
+  affinity:
+    nodeAffinity:
+      requireDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: zone
+                operator: Equal
+                values:
+                  - us-east1
+$ kubectl apply -f affinity-pod.yaml
+$ kubectl get pod affinity-pod -o wide
+-------------------------------------------------------
+Access Control (RBAC)
+🧩 Q6: Create a service account and restrict access
+Create service account: dev-user
+Give read-only access to pods in namespace dev
+✅ Expected: Use Role, RoleBinding
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
