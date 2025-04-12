@@ -142,11 +142,292 @@ Access Control (RBAC)
 Create service account: dev-user
 Give read-only access to pods in namespace dev
 ✅ Expected: Use Role, RoleBinding
+Create service account:
+sa.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dev-user
+  namespace: dev
 
+$ kubectl apply -f sa.yaml 
 
+2. Create a Role with Read Access to Pods
+role.yaml
+apiVersion: rbac.authentication.k8s.io/v1
+kind: Role
+metadata:
+  namespace: dev
+  name: pod-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+$ kubectl apply -f role.yaml
 
+3. Create a RoleBinding to Bind Role to the ServiceAccount
+rolebinding.yaml
+apiVersion: rbac.authentication.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods-binding
+  namespace: dev
+subjects: 
+  - kind: ServiceAccount
+    name: dev-user
+    namespace: dev
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authentication.k8s.io
+$ kubectl apply -f rolebinding.yaml
 
+we can test access using kubectl auth can-i with the service account's token, or by running a pod with that service account.
+-------------------------------------------------------------------------------
+Storage
+🧩 Q7: Create a PVC and mount it
+PVC name: my-pvc
+Size: 1Gi
+Mount to a pod at /data
+Use storage class standard
+✅ Expected: PVC is bound and pod can write to /data
 
+my-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+storageClassName: standard
+$ kubectl apply -f my-pvc.yaml 
+  
+pvc-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-pod
+spec:
+  containers:
+    - name: busybox
+      image: busybox
+      command: [ "sleep", "3600" ]
+      volumeMounts:
+        - name: my-storage
+          mountPath: /data
+  volumes:
+    - name: my-storage
+      persistentVolumeClaim:
+        claimName: my-pvc
+
+$ kubectl apply -f pvc-pod.yaml 
+Check if PVC is bound
+$ kubectl get pvc my-pvc
+$ kubectl get pod pvc-pod
+Enter the pod and write a file:
+$ kubectl exec -it pvc-pod -- sh 
+echo "test file" > /data/test.txt
+cat test.txt 
+--------------------------------------------------------
+Networking
+🧩 Q8: Create a NetworkPolicy
+Only allow pods with label role=api to talk to pods with label app=backend in namespace default.
+✅ Expected: Other pods are blocked from accessing app=backend
+
+ network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-backend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend     #target backend pods
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: api        # allowed: only with pods role=api 
+---------------------------------------------------------------
+Cluster Maintenance
+🧩 Q9: Drain a node for maintenance
+Node: node01
+Evict all pods safely
+✅ Expected: Node shows as SchedulingDisabled
+
+$ kubectl get nodes
+# $ kubectl cordon node <node-name>
+$ kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+$ kubectl get nodes
+$ kubectl uncordon <node-name> 
+-----------------------------------------------------------------
+ Security
+🧩 Q10: Create a pod security policy (PSP) equivalent
+Enforce that containers must run as non-root user.
+Apply to pods in namespace secure.
+✅ Expected: Use PodSecurityAdmission with restricted mode (K8s >= v1.25)
+
+Enforce that pods in the secure namespace must run as non-root.
+1: Label the namespace with restricted mode
+$ kubectl label namespace secure pod-security.kubernetes.io/enforce=restricted
+Optional (but recommended) to also audit and warn:
+$ kubectl label namespace secure pod-security.kubernetes.io/audi=restricted
+$ kubectl label namespace secure pod-security.kubernetes.io/warn=restricted
+ What "restricted" mode enforces:
+Containers must not run as root.
+Must have runAsNonRoot: true or a non-zero runAsUser.
+No privilege escalation.
+Limited volume types.
+Seccomp and capabilities restrictions.
+pod.yaml that will pass
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-po
+  namespace: secure
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+      ports:
+        - containerPort: 80
+      securityContext: 
+        runAsNonRoot: true
+        runAsUser: 1000
+Pod that will fail
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-pod
+  namespace: secure
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+----------------------------------------------------------
+Logging & Monitoring
+🧩 Q11: View logs of a failed pod
+Pod name: crashy
+Find why it's crashing
+✅ Expected: Use kubectl describe and kubectl logs
+
+$ kubectl describe pod crashy
+$ kubectl logs crashy
+If the pod has multiple containers, use:
+$ kubectl logs crashy -c <container-name> 
+If the pod restarts quickly, you may want to see logs from the previous crash:
+$ kubectl logs crashy --previous
+$ kubectl get pod crashy -o wide
+-------------------------------------------------------------
+etcd Backup and Restore
+🧩 Q12: Backup etcd
+Save snapshot to /backup/etcd-snap.db
+✅ Expected: Use etcdctl snapshot save with correct flags
+1: Set environment variables (required for etcdctl)
+$ export ETCDCTL_API=3    
+ 2: Run the snapshot command: For a locally running control-plane node, run:
+$ etcdctl snapshot save /backup/etcd-snap.db \
+    --endpoints=https://127.0.0.1:2379 \
+    --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+    --cert=/etc/kubernetes/pki/etcd/server.crt \
+    --key=/etc/kubernetes/pki/etcd/server.key \
+
+Make sure: /backup/ directory exists:
+$ mkdir -p /backup 
+Run this on the control-plane node where etcd is running.
+-------------------------------------------------------
+Troubleshooting
+🧩 Q13: Fix a CrashLoopBackOff pod
+Pod my-web is crashing due to a missing config
+Fix by adding an env variable ENV=prod
+✅ Expected: Use kubectl edit pod or re-apply YAML
+
+Option 1: Quick fix with kubectl edit (live edit)
+$ kubectl edit pod my-web
+Then inside the YAML, under spec.containers[0], add:
+env:
+  - name: ENV
+    value: "prod"
+Note: Directly editing a pod only works temporarily because pods are not meant to be edited live. It's better to fix the Deployment, StatefulSet, or source YAML if possible.
+2. Recreate the pod from YAML (recommended if managed by Deployment)
+Export the YAML:
+$ kubectl get pod my-web -o yaml > my-web.yaml
+Edit my-web.yaml and add:
+env:
+  - name: ENV
+    value: "prod"
+Delete old pod and reapply:
+$ kubectl delete po my-web
+$ kubectl apply -f my-web.yaml 
+After the fix, confirm the pod is running:
+$ kubectl get po
+$ kubectl logs my-web 
+-----------------------------------------------------
+ConfigMaps and Secrets
+🧩 Q14: Use a ConfigMap and Secret in a pod
+ConfigMap: app-config with APP_MODE=debug
+Secret: db-secret with username/password
+Mount both in the pod my-app
+
+# configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  APP_MODE: debug
+$ kubectl apply -f configmap.yaml
+
+# secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+stringData:
+  username: admin
+  password: s3cr3t
+$kubectl apply -f secret.yaml
+
+# my-app.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: my-app
+spec:
+  containers:
+    - name: app-container
+      image: busybox
+      command: ['sh', '-c', 'env && sleep 3600']
+      env:
+        - name: APP_MODE
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: APP_MODE
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: username
+        - name: DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password
+$ kubectl apply -f my-app.yaml
+To check if the environment variables were set inside the pod:
+$ kubectl exec my-app -- env | grep -E 'APP_MODE|DB_'
+You should see:
+APP_MODE=debug
+DB_USER=admin
+DB_PASS=s3cr3t
 
 
 
