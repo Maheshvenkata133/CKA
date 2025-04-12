@@ -1,0 +1,309 @@
+Context -1
+
+You have been asked to create a new ClusterRole for a deployment pipeline and bind it to a specific ServiceAccount scoped to a specific namespace.
+Task -
+Create a new ClusterRole named deployment-clusterrole, which only allows to create the following resource types:
+✑ Deployment
+✑ Stateful Set
+✑ DaemonSet
+Create a new ServiceAccount named cicd-token in the existing namespace app-team1.
+Bind the new ClusterRole deployment-clusterrole to the new ServiceAccount cicd-token, limited to the namespace app-team1.
+
+
+1. cicd token serviceAccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cicd-token
+  namespace: app-team1
+$ kubectl apply -f cicd token serviceAccount.yaml
+
+2. clusterRole.yaml
+apiVersion: rbac.authentication.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deployment-clusterrole
+  namespace: app-team1
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefullsets", "daemonsets"]
+  verbs: ["create"]
+$ kubectl apply -f clusterRole.yaml
+
+3. Rolebinding.yaml
+apiVersion: rbac.authentication.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployment-access-binding
+  namespace: app-team1
+subjects:
+  - kind: ServiceAccount
+    name: cicd-token
+    namespace: app-team1
+roleFrom:
+  - kind: ClusterRole
+    name: deployment-clusterrole
+    apiGroup: rbac.authentication.k8s.io
+$ kubectl apply -f Rolebinding.yaml 
+or use below imperative command:
+$ kubectl config use-context k8s
+$ kubectl create clusterrole deployment-clusterrole --verbs=create --resources=Deployment,StatefulSet,DaemonSet
+$ kubectl create sa cicd-token --namespace=app-team1
+$ kubectl create clusterrolebinding deploy-b --clusterrole=deployment-clusterrole --serviceaccount=app-team1:cicd-token
+------------------------------------------------------------------
+Task -2
+Set the node named ek8s-node-0 as unavailable and reschedule all the pods running on it.
+$ kubectl get no
+$ kubectl cordon ek8s-node-0
+$ kubectl drain node ek8s-node0 --ignore-daemonsets --delete-emptydir-data 
+$ kubectl get nodes 
+If want to bring node back 
+$ kubectl uncordon ek8s-node-0
+
+-------------------------------------------------------------------
+Task -3
+Given an existing Kubernetes cluster running version 1.22.1, upgrade all of the Kubernetes control plane and node components on the master node only to version 1.22.2.
+Be sure to drain the master node before upgrading it and uncordon it after the upgrade.
+You can ssh to the master node using student@node01 $ ssh mk8s-master-0
+You can assume elevated previlages on the master node with the following command with the following command
+$ sudo -i
+You are also expected to upgrade kubelet and kubectl on the master node.
+Do not upgrade the worker nodes, etced, the container manager, the CNI Plugin,the DNS service or any other addons
+
+venkat@node01$ kubectl config use-context mk8s
+$ kubectl get nodes
+$ kubectl drain mk8s-master-0 --ignore-daemonsets
+$ kubectl get nodes
+$ ssh mk8s-master-0
+$ sudo -i 
+#  Check current version and upgrade plan
+$ kubeadm version
+$ kubeadm upgrade plan
+root@mk8s-master-0 $ apt install kubeadm=1.22.2-00 kubelet=1.22.2-00 kubectl=1.22.2-00
+$ apt install kubeadm=1.22.2-00 kubelet=1.22.2-00 kubelet=1.22.2-00 kubectl=1.22.2-00
+$ kubeadm upgrage plan 
+$ kubeadm upgrade apply v1.22.2
+# $ systemctl daemon-reexec
+$ systemctl restart kubelet 
+$ exit 
+$ exit 
+venkat@node01 $ kubectl uncordon mk8s-master-0
+$ kubectl get no 
+
+or Follow the below instructions:
+
+1: SSH into the master node
+ssh venkat@node01
+ssh mk8s-master-0
+2: Become root
+sudo -i
+3: Drain the master node
+kubectl drain mk8s-master-0 --ignore-daemonsets --delete-emptydir-data
+ 4: Upgrade kubeadm to v1.22.2
+Check available versions:
+apt-get update
+apt-cache madison kubeadm
+apt-get install -y kubeadm=1.22.2-00
+kubeadm version
+5: Apply the upgrade to the control plane
+kubeadm upgrade apply v1.22.2
+Confirm when prompted. This upgrades the control plane (API server, controller-manager, scheduler).
+6: Upgrade kubelet and kubectl
+apt -get install -y kubelet=1.22.2-00 kubectl=1.22.2-00
+Reload and restart services:
+systemct daemon reexec
+systemctl restart kubelet 
+7: Uncordon the master node
+kubectl uncordon mk8s-master-0
+---------------------------------------------------------
+Task -4
+First, create a snapshot of the existing etcd instance running at https://127.0.0.1:2379, saving the snapshot to /var/lib/backup/etcd-snapshot.db.
+
+The following TLS certificates/key are supplied for connecting to the server with etcdctl: 
+i 
+• CA certificate: /opt/KUIN00601/ca.crt 
+• Client certificate: 
+/opt/KUIN00601/etcd-client.crt 
+• 
+Client key: 
+/opt/KUIN00601/etcd-client.key 
+Creating a snapshot of the given instance is expected to complete in seconds. 
+If the operation seems to hang, something's likely wrong with your command. Use CTRL + to cancel the operation and try again.
+
+Next, restore an existing, previous snapshot located at /var/lib/backup/etcd-snapshot-previous.db.
+Note: 
+You should perform both actions on the master node, because:
+etcd runs on the master node, typically as a static pod managed by kubelet.
+Only the master node has access to the etcd API running on https://127.0.0.1:2379.
+TLS certs and snapshot paths are usually present only on the control plane.
+1.Take a Snapshot of etcd
+$ ssh student@scpws01
+ssh mk8s-master-0
+sudo -i
+$ ETCDCTL_API=3 etcdctl --endpoint=https://127.0.0.1:2379 --cacert=/opt/KUIN00601/ca.crt --cert=/opt/KUIN00601/etcd-client.crt --key=/opt/KUIN00601/etcd-client.key snapshot save /data/backup/etcd-snapshot.db
+2: Restore from a Previous Snapshot
+📍 Snapshot path: /var/lib/backup/etcd-snapshot-previous.db
+📍 Restore target dir: use something like /var/lib/etcd-from-backup
+# $ ETCDCTL_API=3 etcdctl snapshot restore /var/lib/backup/etcd-snapshot-previous.db \
+  --data-dir /var/lib/etcd-from-backup
+This only restores the snapshot to a directory.
+To fully restore etcd from this snapshot, you must stop etcd and point it to this restored data dir (--data-dir=/var/lib/etcd-from-backup) in the systemd unit or static pod config.
+$ sudo systemctl stop etcd.service 
+$ sudo ETCDCTL_API=3 etcdctl snapshot restore /var/lib/etcd-from-backup 
+$ sudo systemctl restart etcd.service
+------------------------------------------------------------------------------------------------------
+Task -5
+Create a new NetworkPolicy named allow-port-from-namespace in the existing namespace fubar.
+Ensure that the new NetworkPolicy allows Pods in namespace internal to connect to port 9000 of Pods in namespace fubar.
+Further ensure that the new NetworkPolicy:
+✑ does not allow access to Pods, which don't listen on port 9000
+✑ does not allow access from Pods, which are not in namespace internal
+
+$ kubectl label namespace internal name=internal 
+$ vi policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-port-from-namespace
+  namespace: fubar
+spec:
+  podSelector: {}  # Selects all Pods in the fubar namespace
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: internal
+      ports:
+        - protocol: TCP
+          port: 9000
+
+-----------------------------------------------------------------
+Task -6
+Reconfigure the existing deployment front-end and add a port specification named http exposing port 80/tcp of the existing container nginx.
+Create a new service named front-end-svc exposing the container port http.
+Configure the new service to also expose the individual Pods via a NodePort on the nodes on which they are scheduled.
+$ kubectl get deployments.apps  
+$ kubectl edit deloyments.apps front-end
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: front-end
+  namespace: default
+  labels:
+    app: front-end
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: front-end
+  template:
+    metadata:
+      labels:
+        app: front-end
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.14.2
+          imagePullPolicy: IfNotPresent
+          ports:         ## Added the below 
+            - name: http      
+              containerPort: 80
+              protocol: TCP
+$ kubectl get deployments.apps front-end
+$ kubectl expose deployment front-end --name=front-end-svc --port=80 --target-port=http --type=NodePort --protocol=TCP
+Or use the below yaml to expose the pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: front-end-svc
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: front-end
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+$ kubectl apply -f front-end-svc.yaml
+----------------------------------------------------------------------
+Task -7
+Scale the deployment presentation to 3 pods.
+$ kubectl get deployments
+$ kubectl scale deployment presentation --replicas=3 
+$ kubectl get po 
+-----------------------------------------------------------------------
+Task -8
+Schedule a pod as follows:
+✑ Name: nginx-kusc00401
+✑ Image: nginx
+✑ Node selector: disk=ssd
+
+pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-kusc00401
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+      ports:
+        containerPort: 80
+  nodeSelector:
+    disk: ssd 
+$ kubectl apply -f nginx-pod.yaml
+or use imperative command to create the pod
+$ kubectl run nginx-kusc00401 --image:nginx --dry-run=client -o yaml > nginx-pod.yaml 
+$ vi nginx-pod.yaml
+containers
+nodeSelector:
+  disk: ssd
+$ kubectl apply -f nginx-pod.yaml
+--------------------------------------------------------------------------------
+Task -9
+Check to see how many nodes are ready (not including nodes tainted NoSchedule) and write the number to /opt/KUSC00402/kusc00402.txt.
+$ kubectl get nodes     #If 2 nodes and 1 master 
+$ echo "2" > /opt/KUSC00402/kusc00402.txt
+$ cat /opt/KUSC00402/kusc00402.txt
+--------------------------------------------------------------------------------
+Task -10
+Schedule a Pod as follows:
+✑ Name: kucc8
+✑ App Containers: 2
+✑ Container Name/Images:
+- nginx
+- consul
+
+$ kubectl apply -f nginx-pod.yaml 
+$ kubectl get po 
+--------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
